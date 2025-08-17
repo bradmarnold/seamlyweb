@@ -35,10 +35,12 @@ export default function TutorialPanel({ selectedTool, onClose }: TutorialPanelPr
           <div>
             <h4 className="font-medium mb-2">Line Between Points</h4>
             <ul className="text-sm space-y-1">
-              <li>• Click first point</li>
-              <li>• Click second point</li>
+              <li>• Click first point (existing or create new)</li>
+              <li>• Click second point (existing or create new)</li>
               <li>• Line will be created automatically</li>
               <li>• Continue clicking for chained lines</li>
+              <li>• Yellow highlight shows point under cursor</li>
+              <li>• Blue dashed line shows preview</li>
             </ul>
           </div>
         )

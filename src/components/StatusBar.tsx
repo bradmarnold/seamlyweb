@@ -14,7 +14,7 @@ export default function StatusBar({ selectedTool }: StatusBarProps) {
       case 'point-perp-foot':
         return 'Click line, then click point to drop perpendicular.'
       case 'line-points':
-        return 'Click first point, then second point to create line.'
+        return 'Click first point, then second point to create line. Click empty space to create new points.'
       default:
         return 'Select a tool to begin drawing.'
     }

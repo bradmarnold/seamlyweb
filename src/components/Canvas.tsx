@@ -1,33 +1,31 @@
 'use client'
 
 import { useRef, useEffect, useState, useCallback } from 'react'
+import { Point, Line, Arc, SnapPoint } from '@/types/geometry'
+import { SnapEngine } from '@/utils/snap'
 
 interface CanvasProps {
   selectedTool: string
-}
-
-interface Point {
-  x: number
-  y: number
-  id: string
-  name: string
-}
-
-interface Line {
-  id: string
-  startPoint: Point
-  endPoint: Point
 }
 
 export default function Canvas({ selectedTool }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [points, setPoints] = useState<Point[]>([])
   const [lines, setLines] = useState<Line[]>([])
+  const [arcs, setArcs] = useState<Arc[]>([])
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  
+  // Tool-specific state
+  const [selectedPoints, setSelectedPoints] = useState<Point[]>([])
+  const [isWaitingForSecondPoint, setIsWaitingForSecondPoint] = useState(false)
+  const [hoveredPoint, setHoveredPoint] = useState<Point | null>(null)
+  const [previewLine, setPreviewLine] = useState<{ start: Point; end: Point } | null>(null)
+  const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
+  const [enableSnapping, setEnableSnapping] = useState(true)
 
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const gridSize = 20 * zoom
@@ -79,13 +77,47 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       ctx.stroke()
     })
 
+    // Draw preview line
+    if (previewLine && selectedTool === 'line-points') {
+      ctx.beginPath()
+      ctx.moveTo(previewLine.start.x, previewLine.start.y)
+      ctx.lineTo(previewLine.end.x, previewLine.end.y)
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 5])
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // Draw arcs
+    arcs.forEach(arc => {
+      ctx.beginPath()
+      const startAngle = Math.atan2(arc.startPoint.y - arc.centerPoint.y, arc.startPoint.x - arc.centerPoint.x)
+      const endAngle = Math.atan2(arc.endPoint.y - arc.centerPoint.y, arc.endPoint.x - arc.centerPoint.x)
+      ctx.arc(arc.centerPoint.x, arc.centerPoint.y, arc.radius, startAngle, endAngle)
+      ctx.strokeStyle = '#374151'
+      ctx.lineWidth = 2
+      ctx.stroke()
+    })
+
     // Draw points
     points.forEach(point => {
       ctx.beginPath()
       ctx.arc(point.x, point.y, 4, 0, 2 * Math.PI)
-      ctx.fillStyle = '#3b82f6'
+      
+      // Highlight hovered or selected points
+      if (hoveredPoint?.id === point.id) {
+        ctx.fillStyle = '#fbbf24'
+        ctx.strokeStyle = '#f59e0b'
+      } else if (selectedPoints.some(p => p.id === point.id)) {
+        ctx.fillStyle = '#10b981'
+        ctx.strokeStyle = '#059669'
+      } else {
+        ctx.fillStyle = '#3b82f6'
+        ctx.strokeStyle = '#1e40af'
+      }
+      
       ctx.fill()
-      ctx.strokeStyle = '#1e40af'
       ctx.lineWidth = 2
       ctx.stroke()
       
@@ -95,8 +127,44 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       ctx.fillText(point.name, point.x + 8, point.y - 8)
     })
 
+    // Draw snap indicators
+    if (snapPoint) {
+      ctx.strokeStyle = '#ef4444'
+      ctx.fillStyle = '#ef4444'
+      ctx.lineWidth = 2
+      
+      if (snapPoint.type === 'point') {
+        // Draw circle around snapped point
+        ctx.beginPath()
+        ctx.arc(snapPoint.x, snapPoint.y, 8, 0, 2 * Math.PI)
+        ctx.stroke()
+      } else if (snapPoint.type === 'midpoint') {
+        // Draw square for midpoint
+        ctx.beginPath()
+        ctx.rect(snapPoint.x - 4, snapPoint.y - 4, 8, 8)
+        ctx.stroke()
+      } else if (snapPoint.type === 'grid') {
+        // Draw cross for grid snap
+        ctx.beginPath()
+        ctx.moveTo(snapPoint.x - 6, snapPoint.y)
+        ctx.lineTo(snapPoint.x + 6, snapPoint.y)
+        ctx.moveTo(snapPoint.x, snapPoint.y - 6)
+        ctx.lineTo(snapPoint.x, snapPoint.y + 6)
+        ctx.stroke()
+      } else if (snapPoint.type === 'axis') {
+        // Draw diamond for axis snap
+        ctx.beginPath()
+        ctx.moveTo(snapPoint.x, snapPoint.y - 6)
+        ctx.lineTo(snapPoint.x + 6, snapPoint.y)
+        ctx.lineTo(snapPoint.x, snapPoint.y + 6)
+        ctx.lineTo(snapPoint.x - 6, snapPoint.y)
+        ctx.closePath()
+        ctx.stroke()
+      }
+    }
+
     ctx.restore()
-  }, [points, lines, panOffset, zoom, drawGrid])
+  }, [points, lines, arcs, panOffset, zoom, drawGrid, previewLine, selectedTool, hoveredPoint, selectedPoints, snapPoint])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -129,8 +197,49 @@ export default function Canvas({ selectedTool }: CanvasProps) {
     }
   }
 
+  const findPointAt = (x: number, y: number, tolerance = 10) => {
+    return points.find(point => {
+      const dx = (point.x * zoom + panOffset.x) - (x * zoom + panOffset.x)
+      const dy = (point.y * zoom + panOffset.y) - (y * zoom + panOffset.y)
+      return Math.sqrt(dx * dx + dy * dy) < tolerance
+    })
+  }
+
+  const createPoint = (x: number, y: number) => {
+    const newPoint: Point = {
+      id: `point-${Date.now()}`,
+      name: `A${points.length + 1}`,
+      x,
+      y
+    }
+    setPoints(prev => [...prev, newPoint])
+    return newPoint
+  }
+
+  const createLine = (startPoint: Point, endPoint: Point) => {
+    const newLine: Line = {
+      id: `line-${Date.now()}`,
+      startPoint,
+      endPoint
+    }
+    setLines(prev => [...prev, newLine])
+    return newLine
+  }
+
   const handleMouseDown = (e: React.MouseEvent) => {
     const coords = getCanvasCoordinates(e)
+    
+    // Apply snapping to click position
+    const snapResult = SnapEngine.getSnapPosition(
+      coords.x, 
+      coords.y, 
+      points, 
+      lines, 
+      arcs, 
+      zoom, 
+      panOffset, 
+      enableSnapping
+    )
     
     if (e.button === 1 || e.shiftKey) { // Middle mouse or shift+click for panning
       setIsPanning(true)
@@ -138,25 +247,81 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       return
     }
 
+    const pointAtLocation = findPointAt(snapResult.x, snapResult.y)
+
     if (selectedTool === 'point-distance-angle') {
-      const newPoint: Point = {
-        id: `point-${Date.now()}`,
-        name: `A${points.length + 1}`,
-        x: coords.x,
-        y: coords.y
+      if (!pointAtLocation) {
+        createPoint(snapResult.x, snapResult.y)
       }
-      setPoints(prev => [...prev, newPoint])
+    } else if (selectedTool === 'line-points') {
+      if (pointAtLocation) {
+        if (!isWaitingForSecondPoint) {
+          // First point selected
+          setSelectedPoints([pointAtLocation])
+          setIsWaitingForSecondPoint(true)
+        } else {
+          // Second point selected
+          if (selectedPoints[0] && pointAtLocation.id !== selectedPoints[0].id) {
+            createLine(selectedPoints[0], pointAtLocation)
+          }
+          setSelectedPoints([])
+          setIsWaitingForSecondPoint(false)
+          setPreviewLine(null)
+        }
+      } else {
+        // Click on empty space - create new point (using snapped position)
+        const newPoint = createPoint(snapResult.x, snapResult.y)
+        if (!isWaitingForSecondPoint) {
+          setSelectedPoints([newPoint])
+          setIsWaitingForSecondPoint(true)
+        } else {
+          // Second point created
+          if (selectedPoints[0]) {
+            createLine(selectedPoints[0], newPoint)
+          }
+          setSelectedPoints([])
+          setIsWaitingForSecondPoint(false)
+          setPreviewLine(null)
+        }
+      }
     }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    setMousePos(getCanvasCoordinates(e))
+    const coords = getCanvasCoordinates(e)
+    
+    // Apply snapping
+    const snapResult = SnapEngine.getSnapPosition(
+      coords.x, 
+      coords.y, 
+      points, 
+      lines, 
+      arcs, 
+      zoom, 
+      panOffset, 
+      enableSnapping
+    )
+    
+    setMousePos(snapResult)
+    setSnapPoint(snapResult.snapPoint || null)
 
     if (isPanning) {
       setPanOffset({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y
       })
+    } else {
+      // Update hovered point
+      const pointAtLocation = findPointAt(snapResult.x, snapResult.y)
+      setHoveredPoint(pointAtLocation || null)
+
+      // Update preview line for line tool
+      if (selectedTool === 'line-points' && isWaitingForSecondPoint && selectedPoints[0]) {
+        setPreviewLine({
+          start: selectedPoints[0],
+          end: pointAtLocation || { x: snapResult.x, y: snapResult.y, id: 'preview', name: 'preview' }
+        })
+      }
     }
   }
 
@@ -169,6 +334,50 @@ export default function Canvas({ selectedTool }: CanvasProps) {
     const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
     setZoom(prev => Math.max(0.1, Math.min(5, prev * zoomFactor)))
   }
+
+  // Reset tool state when tool changes
+  useEffect(() => {
+    setSelectedPoints([])
+    setIsWaitingForSecondPoint(false)
+    setPreviewLine(null)
+    setHoveredPoint(null)
+    setSnapPoint(null)
+  }, [selectedTool])
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        e.preventDefault()
+        setIsPanning(true)
+      } else if (e.key === 'Shift') {
+        // Enable 45-degree angle snapping (todo: implement)
+      } else if (e.key === 'Escape') {
+        // Cancel current operation
+        setSelectedPoints([])
+        setIsWaitingForSecondPoint(false)
+        setPreviewLine(null)
+        setHoveredPoint(null)
+      } else if (e.key === 's' || e.key === 'S') {
+        // Toggle snapping
+        setEnableSnapping(!enableSnapping)
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        setIsPanning(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [enableSnapping])
 
   return (
     <div className="flex-1 relative bg-white">
@@ -185,6 +394,16 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       {/* Mouse coordinates display */}
       <div className="absolute top-4 left-4 bg-white bg-opacity-90 px-2 py-1 rounded text-sm font-mono">
         X: {mousePos.x.toFixed(1)}, Y: {mousePos.y.toFixed(1)} | Zoom: {(zoom * 100).toFixed(0)}%
+        {isWaitingForSecondPoint && <div className="text-blue-600">Select second point...</div>}
+        {snapPoint && (
+          <div className="text-red-600">
+            Snap: {snapPoint.type} 
+            {snapPoint.sourceObject && 'name' in snapPoint.sourceObject && ` (${snapPoint.sourceObject.name})`}
+          </div>
+        )}
+        <div className="text-xs text-gray-500">
+          Press &apos;S&apos; to toggle snapping ({enableSnapping ? 'ON' : 'OFF'})
+        </div>
       </div>
     </div>
   )
