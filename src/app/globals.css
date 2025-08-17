@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for SeamlyWeb */
+.canvas-grid {
+  background-image: 
+    linear-gradient(to right, #e5e7eb 1px, transparent 1px),
+    linear-gradient(to bottom, #e5e7eb 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.tool-button {
+  @apply px-3 py-2 rounded hover:bg-gray-200 transition-colors cursor-pointer flex items-center space-x-2;
+}
+
+.tool-button.active {
+  @apply bg-blue-100 border-blue-300 border;
+}
+
+.dialog-overlay {
+  @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+}
+
+.dialog-content {
+  @apply bg-white rounded-lg p-6 shadow-xl min-w-96;
+}
