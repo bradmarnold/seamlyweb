@@ -1,5 +1,6 @@
 import './globals.css'
 import { CommandProvider } from '@/contexts/CommandContext'
+import { MeasurementsProvider } from '@/contexts/MeasurementsContext'
 
 export const metadata = {
   title: 'SeamlyWeb - CAD Pattern Making',
@@ -15,7 +16,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="font-sans">
         <CommandProvider>
-          {children}
+          <MeasurementsProvider>
+            {children}
+          </MeasurementsProvider>
         </CommandProvider>
       </body>
     </html>
