@@ -105,7 +105,8 @@ export default function TutorialPanel({ selectedTool, onClose }: TutorialPanelPr
             <li>• Esc: Cancel operation</li>
             <li>• Enter: Confirm operation</li>
             <li>• Ctrl+Z: Undo</li>
-            <li>• Ctrl+Shift+Z: Redo</li>
+            <li>• Ctrl+Y / Ctrl+Shift+Z: Redo</li>
+            <li>• S: Toggle snapping</li>
           </ul>
         </div>
       </div>

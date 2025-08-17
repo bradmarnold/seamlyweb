@@ -3,6 +3,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Point, Line, Arc, SnapPoint } from '@/types/geometry'
 import { SnapEngine } from '@/utils/snap'
+import { useCommands } from '@/contexts/CommandContext'
+import { CreatePointCommand, CreateLineCommand, CreateArcCommand } from '@/utils/commands'
 
 interface CanvasProps {
   selectedTool: string
@@ -18,6 +20,9 @@ export default function Canvas({ selectedTool }: CanvasProps) {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  
+  // Command system
+  const { executeCommand, undo, redo } = useCommands()
   
   // Tool-specific state
   const [selectedPoints, setSelectedPoints] = useState<Point[]>([])
@@ -227,7 +232,11 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       x,
       y
     }
-    setPoints(prev => [...prev, newPoint])
+    
+    // Use command system
+    const command = new CreatePointCommand(newPoint, points, setPoints)
+    executeCommand(command)
+    
     return newPoint
   }
 
@@ -237,7 +246,11 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       startPoint,
       endPoint
     }
-    setLines(prev => [...prev, newLine])
+    
+    // Use command system
+    const command = new CreateLineCommand(newLine, lines, setLines)
+    executeCommand(command)
+    
     return newLine
   }
 
@@ -252,7 +265,11 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       endPoint,
       radius
     }
-    setArcs(prev => [...prev, newArc])
+    
+    // Use command system
+    const command = new CreateArcCommand(newArc, arcs, setArcs)
+    executeCommand(command)
+    
     return newArc
   }
 
@@ -474,6 +491,14 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       } else if (e.key === 's' || e.key === 'S') {
         // Toggle snapping
         setEnableSnapping(!enableSnapping)
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        // Undo
+        e.preventDefault()
+        undo()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        // Redo
+        e.preventDefault()
+        redo()
       }
     }
 
@@ -490,7 +515,7 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [enableSnapping])
+  }, [enableSnapping, undo, redo])
 
   return (
     <div className="flex-1 relative bg-white">
