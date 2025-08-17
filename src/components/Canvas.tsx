@@ -22,8 +22,10 @@ export default function Canvas({ selectedTool }: CanvasProps) {
   // Tool-specific state
   const [selectedPoints, setSelectedPoints] = useState<Point[]>([])
   const [isWaitingForSecondPoint, setIsWaitingForSecondPoint] = useState(false)
+  const [isWaitingForThirdPoint, setIsWaitingForThirdPoint] = useState(false)
   const [hoveredPoint, setHoveredPoint] = useState<Point | null>(null)
   const [previewLine, setPreviewLine] = useState<{ start: Point; end: Point } | null>(null)
+  const [previewArc, setPreviewArc] = useState<Arc | null>(null)
   const [snapPoint, setSnapPoint] = useState<SnapPoint | null>(null)
   const [enableSnapping, setEnableSnapping] = useState(true)
 
@@ -78,10 +80,23 @@ export default function Canvas({ selectedTool }: CanvasProps) {
     })
 
     // Draw preview line
-    if (previewLine && selectedTool === 'line-points') {
+    if (previewLine && (selectedTool === 'line-points' || selectedTool === 'point-midpoint')) {
       ctx.beginPath()
       ctx.moveTo(previewLine.start.x, previewLine.start.y)
       ctx.lineTo(previewLine.end.x, previewLine.end.y)
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 5])
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
+    // Draw preview arc
+    if (previewArc && selectedTool === 'arc-center') {
+      ctx.beginPath()
+      const startAngle = Math.atan2(previewArc.startPoint.y - previewArc.centerPoint.y, previewArc.startPoint.x - previewArc.centerPoint.x)
+      const endAngle = Math.atan2(previewArc.endPoint.y - previewArc.centerPoint.y, previewArc.endPoint.x - previewArc.centerPoint.x)
+      ctx.arc(previewArc.centerPoint.x, previewArc.centerPoint.y, previewArc.radius, startAngle, endAngle)
       ctx.strokeStyle = '#3b82f6'
       ctx.lineWidth = 2
       ctx.setLineDash([5, 5])
@@ -164,7 +179,7 @@ export default function Canvas({ selectedTool }: CanvasProps) {
     }
 
     ctx.restore()
-  }, [points, lines, arcs, panOffset, zoom, drawGrid, previewLine, selectedTool, hoveredPoint, selectedPoints, snapPoint])
+  }, [points, lines, arcs, panOffset, zoom, drawGrid, previewLine, previewArc, selectedTool, hoveredPoint, selectedPoints, snapPoint])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -226,6 +241,21 @@ export default function Canvas({ selectedTool }: CanvasProps) {
     return newLine
   }
 
+  const createArc = (centerPoint: Point, startPoint: Point, endPoint: Point) => {
+    const radius = Math.sqrt(
+      (startPoint.x - centerPoint.x) ** 2 + (startPoint.y - centerPoint.y) ** 2
+    )
+    const newArc: Arc = {
+      id: `arc-${Date.now()}`,
+      centerPoint,
+      startPoint,
+      endPoint,
+      radius
+    }
+    setArcs(prev => [...prev, newArc])
+    return newArc
+  }
+
   const handleMouseDown = (e: React.MouseEvent) => {
     const coords = getCanvasCoordinates(e)
     
@@ -284,6 +314,50 @@ export default function Canvas({ selectedTool }: CanvasProps) {
           setPreviewLine(null)
         }
       }
+    } else if (selectedTool === 'point-midpoint') {
+      // Midpoint tool - requires two points to create midpoint between them
+      if (pointAtLocation) {
+        if (!isWaitingForSecondPoint) {
+          // First point selected
+          setSelectedPoints([pointAtLocation])
+          setIsWaitingForSecondPoint(true)
+        } else {
+          // Second point selected - create midpoint
+          if (selectedPoints[0] && pointAtLocation.id !== selectedPoints[0].id) {
+            const midX = (selectedPoints[0].x + pointAtLocation.x) / 2
+            const midY = (selectedPoints[0].y + pointAtLocation.y) / 2
+            createPoint(midX, midY)
+          }
+          setSelectedPoints([])
+          setIsWaitingForSecondPoint(false)
+          setPreviewLine(null)
+        }
+      }
+    } else if (selectedTool === 'arc-center') {
+      // Arc by center tool - requires three points: center, start, end
+      if (pointAtLocation) {
+        if (selectedPoints.length === 0) {
+          // First point selected (center)
+          setSelectedPoints([pointAtLocation])
+          setIsWaitingForSecondPoint(true)
+        } else if (selectedPoints.length === 1) {
+          // Second point selected (start point)
+          if (pointAtLocation.id !== selectedPoints[0].id) {
+            setSelectedPoints([...selectedPoints, pointAtLocation])
+            setIsWaitingForSecondPoint(false)
+            setIsWaitingForThirdPoint(true)
+          }
+        } else if (selectedPoints.length === 2) {
+          // Third point selected (end point)
+          if (pointAtLocation.id !== selectedPoints[0].id && pointAtLocation.id !== selectedPoints[1].id) {
+            createArc(selectedPoints[0], selectedPoints[1], pointAtLocation)
+            setSelectedPoints([])
+            setIsWaitingForSecondPoint(false)
+            setIsWaitingForThirdPoint(false)
+            setPreviewArc(null)
+          }
+        }
+      }
     }
   }
 
@@ -321,6 +395,41 @@ export default function Canvas({ selectedTool }: CanvasProps) {
           start: selectedPoints[0],
           end: pointAtLocation || { x: snapResult.x, y: snapResult.y, id: 'preview', name: 'preview' }
         })
+      } else if (selectedTool === 'point-midpoint' && isWaitingForSecondPoint && selectedPoints[0]) {
+        // Show preview for midpoint location
+        const targetPoint = pointAtLocation || { x: snapResult.x, y: snapResult.y, id: 'preview', name: 'preview' }
+        const midX = (selectedPoints[0].x + targetPoint.x) / 2
+        const midY = (selectedPoints[0].y + targetPoint.y) / 2
+        
+        setPreviewLine({
+          start: selectedPoints[0],
+          end: targetPoint
+        })
+      } else if (selectedTool === 'arc-center' && selectedPoints.length >= 1) {
+        const targetPoint = pointAtLocation || { x: snapResult.x, y: snapResult.y, id: 'preview', name: 'preview' }
+        
+        if (selectedPoints.length === 1) {
+          // Show radius preview
+          setPreviewLine({
+            start: selectedPoints[0], // center
+            end: targetPoint // potential start point
+          })
+        } else if (selectedPoints.length === 2) {
+          // Show arc preview
+          const radius = Math.sqrt(
+            (selectedPoints[1].x - selectedPoints[0].x) ** 2 + 
+            (selectedPoints[1].y - selectedPoints[0].y) ** 2
+          )
+          
+          setPreviewArc({
+            id: 'preview',
+            centerPoint: selectedPoints[0],
+            startPoint: selectedPoints[1],
+            endPoint: targetPoint,
+            radius
+          })
+          setPreviewLine(null)
+        }
       }
     }
   }
@@ -339,7 +448,9 @@ export default function Canvas({ selectedTool }: CanvasProps) {
   useEffect(() => {
     setSelectedPoints([])
     setIsWaitingForSecondPoint(false)
+    setIsWaitingForThirdPoint(false)
     setPreviewLine(null)
+    setPreviewArc(null)
     setHoveredPoint(null)
     setSnapPoint(null)
   }, [selectedTool])
@@ -356,7 +467,9 @@ export default function Canvas({ selectedTool }: CanvasProps) {
         // Cancel current operation
         setSelectedPoints([])
         setIsWaitingForSecondPoint(false)
+        setIsWaitingForThirdPoint(false)
         setPreviewLine(null)
+        setPreviewArc(null)
         setHoveredPoint(null)
       } else if (e.key === 's' || e.key === 'S') {
         // Toggle snapping
@@ -394,7 +507,8 @@ export default function Canvas({ selectedTool }: CanvasProps) {
       {/* Mouse coordinates display */}
       <div className="absolute top-4 left-4 bg-white bg-opacity-90 px-2 py-1 rounded text-sm font-mono">
         X: {mousePos.x.toFixed(1)}, Y: {mousePos.y.toFixed(1)} | Zoom: {(zoom * 100).toFixed(0)}%
-        {isWaitingForSecondPoint && <div className="text-blue-600">Select second point...</div>}
+        {isWaitingForSecondPoint && !isWaitingForThirdPoint && <div className="text-blue-600">Select second point...</div>}
+        {isWaitingForThirdPoint && <div className="text-blue-600">Select third point...</div>}
         {snapPoint && (
           <div className="text-red-600">
             Snap: {snapPoint.type} 

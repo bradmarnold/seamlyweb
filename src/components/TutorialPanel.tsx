@@ -30,6 +30,32 @@ export default function TutorialPanel({ selectedTool, onClose }: TutorialPanelPr
             </ul>
           </div>
         )
+      case 'point-midpoint':
+        return (
+          <div>
+            <h4 className="font-medium mb-2">Midpoint Tool</h4>
+            <ul className="text-sm space-y-1">
+              <li>• Click first point</li>
+              <li>• Click second point</li>
+              <li>• Midpoint will be created automatically</li>
+              <li>• Works with existing points only</li>
+              <li>• Preview line shows the connection</li>
+            </ul>
+          </div>
+        )
+      case 'arc-center':
+        return (
+          <div>
+            <h4 className="font-medium mb-2">Arc by Center</h4>
+            <ul className="text-sm space-y-1">
+              <li>• Click center point</li>
+              <li>• Click start point (defines radius)</li>
+              <li>• Click end point (completes arc)</li>
+              <li>• Works with existing points only</li>
+              <li>• Blue line shows radius, blue arc shows preview</li>
+            </ul>
+          </div>
+        )
       case 'line-points':
         return (
           <div>

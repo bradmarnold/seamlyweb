@@ -15,6 +15,10 @@ export default function StatusBar({ selectedTool }: StatusBarProps) {
         return 'Click line, then click point to drop perpendicular.'
       case 'line-points':
         return 'Click first point, then second point to create line. Click empty space to create new points.'
+      case 'point-midpoint':
+        return 'Click two points to create a midpoint between them.'
+      case 'arc-center':
+        return 'Click center point, then start point, then end point to create arc.'
       default:
         return 'Select a tool to begin drawing.'
     }
